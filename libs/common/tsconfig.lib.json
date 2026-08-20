@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../dist/libs/common/tsconfig.lib.tsbuildinfo",
+    "outDir": "../../dist/libs/common",
+    "declaration": true
+  },
+  "include": ["src/**/*"]
+}
