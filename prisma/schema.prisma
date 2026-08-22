@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+//IN-future HARD DELETE Tenants
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum NotificationType {
+  OTP
+  ORDER_CONFIRMATION
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  PASSWORD_RESET
+  MARKETING
+  SYSTEM_ALERT
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum NotificationStatus {
+  PENDING
+  QUEUED
+  PROCESSING
+  SENT
+  FAILED
+  RETRYING
+  DEAD_LETTERED
+  CANCELLED
+}
+
+enum DeliveryAttemptStatus {
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum AuditEvent {
+  NOTIFICATION_CREATED
+  NOTIFICATION_QUEUED
+  NOTIFICATION_PROCESSING
+  NOTIFICATION_SENT
+  NOTIFICATION_FAILED
+  NOTIFICATION_RETRYING
+  NOTIFICATION_DEAD_LETTERED
+  NOTIFICATION_CANCELLED
+}
+
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @db.VarChar(150)
+  slug      String       @unique @db.VarChar(100)
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  users         User[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+model User {
+  id        String     @id @default(uuid()) @db.Uuid
+  tenantId  String     @db.Uuid
+  email     String     @db.VarChar(255)
+  name      String?    @db.VarChar(150)
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("users")
+}
+
+model Notification {
+  id          String               @id @default(uuid()) @db.Uuid
+  tenantId    String               @db.Uuid
+  type        NotificationType
+  channel     NotificationChannel
+  recipient   String               @db.VarChar(320)
+  subject     String?              @db.VarChar(500)
+  content     String               @db.Text
+  priority    NotificationPriority @default(NORMAL)
+  status      NotificationStatus   @default(PENDING)
+  scheduledAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  deliveryAttempts DeliveryAttempt[]
+  auditLogs        AuditLog[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([status, scheduledAt])
+  @@map("notifications")
+}
+
+model DeliveryAttempt {
+  id                String                @id @default(uuid()) @db.Uuid
+  notificationId    String                @db.Uuid
+  attemptNumber     Int
+  provider          String                @db.VarChar(100)
+  status            DeliveryAttemptStatus
+  errorCode         String?               @db.VarChar(100)
+  errorMessage      String?               @db.Text
+  providerMessageId String?               @db.VarChar(255)
+  startedAt         DateTime              @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime              @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, attemptNumber])
+  @@index([notificationId])
+  @@index([provider, status])
+  @@map("delivery_attempts")
+}
+
+model AuditLog {
+  id             String     @id @default(uuid()) @db.Uuid
+  tenantId       String     @db.Uuid
+  notificationId String?    @db.Uuid
+  event          AuditEvent
+  actor          String?    @db.VarChar(100)
+  metadata       Json?
+  createdAt      DateTime   @default(now())
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([notificationId, createdAt])
+  @@index([event, createdAt])
+  @@map("audit_logs")
+}
