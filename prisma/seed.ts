@@ -9,9 +9,9 @@ async function main() {
   // 1. Tenant → User
   const tenant = await prisma.tenant.create({
     data: {
-      name: 'Ac Corp',
+      name: 'Corp',
       status: 'ACTIVE',
-      slug: 'ac-corp',
+      slug: 'corp',
       users: {
         create: {
           email: 'dev@acme.test',
