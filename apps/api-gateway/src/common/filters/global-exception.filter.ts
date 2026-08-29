@@ -1,67 +1,49 @@
 import {
-  ExceptionFilter,
-  Catch,
   ArgumentsHost,
+  Catch,
+  ExceptionFilter,
   HttpException,
   HttpStatus,
-  Logger,
-} from '@nestjs/common'
-import { Request, Response } from 'express'
-import { randomUUID } from 'crypto'
-import { AppException } from '../expections/app.expception'
+} from '@nestjs/common';
 
 @Catch()
-export class GlobalExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(GlobalExceptionFilter.name)
-
+export class GlobalExceptionFilter
+  implements ExceptionFilter
+{
   catch(exception: unknown, host: ArgumentsHost) {
-    const ctx = host.switchToHttp()
-    const response = ctx.getResponse<Response>()
-    const request = ctx.getRequest<Request>()
+    const context = host.switchToHttp();
+    const request = context.getRequest();
+    const response = context.getResponse();
 
-    const requestId =
-      (request.headers['x-request-id'] as string) || randomUUID()
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let code = 'INTERNAL_ERROR';
+    let message = 'An unexpected error occurred';
+    let details: unknown = undefined;
 
-    let status = HttpStatus.INTERNAL_SERVER_ERROR
-    let code = 'INTERNAL_SERVER_ERROR'
-    let message = 'An unexpected error occurred'
-    let details: { field?: string; message: string }[] | undefined
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
 
-    if (exception instanceof AppException) {
-      status = exception.getStatus()
-      code = exception.code
-      message = exception.message
-      details = exception.details
-    } else if (exception instanceof HttpException) {
-      status = exception.getStatus()
-      const res = exception.getResponse()
+      const exceptionResponse = exception.getResponse();
 
-      // Handles NestJS's built-in ValidationPipe errors (class-validator)
-      if (typeof res === 'object' && res !== null) {
-        const resObj = res as any
-        message = resObj.message || exception.message
-        code = this.mapStatusToCode(status)
+      if (typeof exceptionResponse === 'string') {
+        message = exceptionResponse;
+      } else if (
+        typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null
+      ) {
+        const body = exceptionResponse as Record<string, unknown>;
 
-        // class-validator errors come as an array of strings
-        if (Array.isArray(resObj.message)) {
-          message = 'Request validation failed'
-          details = resObj.message.map((m: string) => ({ message: m }))
+        message =
+          typeof body.message === 'string'
+            ? body.message
+            : message;
+
+        details = body.message;
+
+        if (status === HttpStatus.BAD_REQUEST) {
+          code = 'VALIDATION_ERROR';
         }
-      } else {
-        message = res as string
-        code = this.mapStatusToCode(status)
       }
-    } else if (exception instanceof Error) {
-      message = exception.message
-      this.logger.error(exception.message, exception.stack)
-    }
-
-    // Always log unexpected (500) errors server-side with full detail
-    if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(
-        `Unhandled exception [${requestId}]`,
-        exception instanceof Error ? exception.stack : exception,
-      )
     }
 
     response.status(status).json({
@@ -69,26 +51,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       error: {
         code,
         message,
-        ...(details && details.length > 0 ? { details } : {}),
+        ...(details ? { details } : {}),
       },
       meta: {
-        requestId,
-        timestamp: new Date().toISOString(),
+        requestId: request.requestId,
+        correlationId: request.correlationId,
       },
-    })
-  }
-
-  private mapStatusToCode(status: number): string {
-    const map: Record<number, string> = {
-      400: 'VALIDATION_ERROR',
-      401: 'UNAUTHORIZED',
-      403: 'FORBIDDEN',
-      404: 'NOT_FOUND',
-      409: 'CONFLICT',
-      422: 'UNPROCESSABLE_ENTITY',
-      429: 'TOO_MANY_REQUESTS',
-      500: 'INTERNAL_SERVER_ERROR',
-    }
-    return map[status] || 'ERROR'
+    });
   }
 }
